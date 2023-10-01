@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import pytz
 import connect
 import paho.mqtt.client as mqtt
