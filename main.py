@@ -77,7 +77,7 @@ class FieldState:
         
         self.playStartSound()
 
-        self.endTime = datetime.datetime.fromisoformat(payload['endTime'])
+        self.endTime = datetime.datetime.strptime(payload['endTime'], '%Y-%m-%dT%H:%M:%S.%f%z')
 
         if state == "AUTO":
             timeToEnd = self.endTime - datetime.datetime.now(tz=pytz.UTC)
