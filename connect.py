@@ -2,11 +2,7 @@ import socket
 
 def attempt_connection():
     # Create a UDP socket
-    try:
-        outSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    except OSError:
-        return None
-    
+    outSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     respSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 
     # Bind the socket to a specific port
@@ -42,7 +38,11 @@ def attempt_connection():
 def get_server():
     print('Attempting to find maestro')
     while True:
-        addr = attempt_connection()
+        try:
+            addr = attempt_connection()
+        except OSError:
+            addr = None
+            
         if addr:
             print('Maestro found at ' + addr)
             return addr
