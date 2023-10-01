@@ -2,7 +2,11 @@ import socket
 
 def attempt_connection():
     # Create a UDP socket
-    outSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    try:
+        outSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    except OSError:
+        return None
+    
     respSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 
     # Bind the socket to a specific port
