@@ -18,6 +18,8 @@ def on_connect(client, userdata, flags, rc):
 def handle_field_set(field):
     global currentField
     if field and field != currentField:
+        if currentField:
+            client.unsubscribe('fields/' + currentField)
         currentField = field
         print('Field set to ' + field)
         client.subscribe('fields/' + field)
