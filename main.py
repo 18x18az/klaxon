@@ -13,27 +13,11 @@ server = connect.get_server()
 
 def on_connect(client, userdata, flags, rc):
     print('Connected to MQTT server')
-    client.subscribe('fieldSet/1')
-
-
-def handle_field_set(field):
-    global currentField
-    if field and field != currentField:
-        if currentField:
-            client.unsubscribe('fields/' + currentField)
-        currentField = field
-        print('Field set to ' + field)
-        client.subscribe('fields/' + field)
-    elif field == None and currentField:
-        currentField = None
-        client.unsubscribe('fields/' + currentField)
-        print('No current field')
-
-previous_state = "DISABLED"
+    client.subscribe('fieldControl')
 
 class FieldState:
     def __init__(self) -> None:
-        self.currentState = "DISABLED"
+        self.state = "DISABLED"
         self.timer = None
         self.endTime = None
 
@@ -43,7 +27,7 @@ class FieldState:
             self.timer = None
 
         self.endTime = None
-        self.currentState = "DISABLED"
+        self.state = "DISABLED"
 
     def playStartSound(self):
         playsound('start.wav')
@@ -57,6 +41,7 @@ class FieldState:
         playsound('stop.wav')
 
     def handleEarlyEnd(self):
+        print('handling early end')
         self.handleDisable()
         playsound('stop.wav')
 
@@ -68,42 +53,38 @@ class FieldState:
 
     def handleFieldState(self, payload):
         state = payload['state']
+        print(state)
 
-        if state == self.currentState:
-            return
-        
-        if state == "DISABLED":
-            self.handleEarlyEnd()
-            return
-        
-        self.playStartSound()
-
-        self.endTime = datetime.datetime.strptime(payload['endTime'], '%Y-%m-%dT%H:%M:%S.%f%z')
-
-        if state == "AUTO":
+        if state == 'AUTO':
+            if self.state == 'ENABLED':
+                return
+            print('auto started')
+            self.state = "ENABLED"
+            self.playStartSound()
+            self.endTime = datetime.datetime.strptime(payload['time'], '%Y-%m-%dT%H:%M:%S.%f%z')
             timeToEnd = self.endTime - datetime.datetime.now(tz=pytz.UTC)
             self.timer = threading.Timer(timeToEnd.total_seconds(), self.handleAutonomousEnd)
             self.timer.start()
-        else:
-            # 30 second warning
+        elif state == 'DRIVER':
+            if self.state == 'ENABLED':
+                return
+            print('driver started')
+            self.endTime = datetime.datetime.strptime(payload['time'], '%Y-%m-%dT%H:%M:%S.%f%z')
+            self.state = "ENABLED"
+            self.playStartSound()
             timeToWarning = self.endTime - datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=30)
             self.timer = threading.Timer(timeToWarning.total_seconds(), self.handleWarning)
             self.timer.start()
-
-        self.currentState = state
-        
+        elif self.state == "ENABLED":
+            print('received something indicating the match is over while enabled')
+            self.handleEarlyEnd()
 
 field = FieldState()
 
 def on_message(client, userdata, msg):
     topic = msg.topic
     payload = json.loads(msg.payload.decode('utf-8'))
-    if topic.startswith('fieldSet'):
-        handle_field_set(payload['currentField'])
-
-    elif topic.startswith('fields'):
-        print(payload)
-        field.handleFieldState(payload)
+    field.handleFieldState(payload)
 
 client = mqtt.Client(transport='websockets')
 
