@@ -47,11 +47,14 @@ class FieldState:
 
     def handleWarning(self):
         playsound('warning.wav')
-        timeToEnd = self.endTime - datetime.datetime.now(tz=pytz.UTC)
+        timeToEnd = self.endTime - datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=0.25)
         self.timer = threading.Timer(timeToEnd.total_seconds(), self.handleDriverEnd)
         self.timer.start()
 
     def handleFieldState(self, payload):
+        if(payload == None):
+            return
+        print(payload)
         state = payload['state']
         print(state)
 
@@ -61,15 +64,15 @@ class FieldState:
             print('auto started')
             self.state = "ENABLED"
             self.playStartSound()
-            self.endTime = datetime.datetime.strptime(payload['time'], '%Y-%m-%dT%H:%M:%S.%f%z')
-            timeToEnd = self.endTime - datetime.datetime.now(tz=pytz.UTC)
+            self.endTime = datetime.datetime.strptime(payload['match']['time'], '%Y-%m-%dT%H:%M:%S.%f%z')
+            timeToEnd = self.endTime - datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=0.25)
             self.timer = threading.Timer(timeToEnd.total_seconds(), self.handleAutonomousEnd)
             self.timer.start()
         elif state == 'DRIVER':
             if self.state == 'ENABLED':
                 return
             print('driver started')
-            self.endTime = datetime.datetime.strptime(payload['time'], '%Y-%m-%dT%H:%M:%S.%f%z')
+            self.endTime = datetime.datetime.strptime(payload['match']['time'], '%Y-%m-%dT%H:%M:%S.%f%z')
             self.state = "ENABLED"
             self.playStartSound()
             timeToWarning = self.endTime - datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=30)
