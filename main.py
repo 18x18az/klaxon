@@ -13,7 +13,7 @@ server = connect.get_server()
 
 def on_connect(client, userdata, flags, rc):
     print('Connected to MQTT server')
-    client.subscribe('fieldControl')
+    client.subscribe('activeField')
 
 class FieldState:
     def __init__(self) -> None:
@@ -64,7 +64,7 @@ class FieldState:
             print('auto started')
             self.state = "ENABLED"
             self.playStartSound()
-            self.endTime = datetime.datetime.strptime(payload['match']['time'], '%Y-%m-%dT%H:%M:%S.%f%z')
+            self.endTime = datetime.datetime.strptime(payload['endTime'], '%Y-%m-%dT%H:%M:%S.%f%z')
             timeToEnd = self.endTime - datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=0.25)
             self.timer = threading.Timer(timeToEnd.total_seconds(), self.handleAutonomousEnd)
             self.timer.start()
@@ -72,7 +72,7 @@ class FieldState:
             if self.state == 'ENABLED':
                 return
             print('driver started')
-            self.endTime = datetime.datetime.strptime(payload['match']['time'], '%Y-%m-%dT%H:%M:%S.%f%z')
+            self.endTime = datetime.datetime.strptime(payload['endTime'], '%Y-%m-%dT%H:%M:%S.%f%z')
             self.state = "ENABLED"
             self.playStartSound()
             timeToWarning = self.endTime - datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=30)
