@@ -32,17 +32,17 @@ def attempt_connection():
     # Close the socket
     respSock.close()
     
-    return address
+    return address, apiPort[0]
 
 
 def get_server():
     print('Attempting to find maestro')
     while True:
         try:
-            addr = attempt_connection()
+            addr, port = attempt_connection()
         except OSError:
             addr = None
             
         if addr:
             print('Maestro found at ' + addr)
-            return addr
+            return addr, port

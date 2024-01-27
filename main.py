@@ -1,109 +1,172 @@
 #!/usr/bin/env python3
-import pytz
 import connect
-import paho.mqtt.client as mqtt
 import datetime
-import threading
+from gql import gql, Client
+from gql.transport.aiohttp import AIOHTTPTransport
+from gql.transport.websockets import WebsocketsTransport
+import websockets
+import asyncio
+import aiohttp
+from datetime import datetime, timezone, timedelta
 from playsound import playsound
-import json
+
+end_time = None
+mode = None
+pendingTimer = None
 
 currentField = None
 
 server = connect.get_server()
 
-def on_connect(client, userdata, flags, rc):
-    print('Connected to MQTT server')
-    client.subscribe('liveField')
+async def timer(stop_time: str, isWarning: bool = False):
+    global pendingTimer, end_time
+    # time is in ISO format
+    timeToWait = (datetime.fromisoformat(stop_time) - datetime.now(timezone.utc)).total_seconds()
+    if isWarning:
+        timeToWait -= 30
+    await asyncio.sleep(timeToWait)
+    if isWarning:
+        playWarning()
+        pendingTimer = asyncio.create_task(timer(end_time))
+    else:
+        pendingTimer = None
+        end_time = None
+        periodEnd()
 
-class FieldState:
-    def __init__(self) -> None:
-        self.state = "DISABLED"
-        self.timer = None
-        self.endTime = None
+def playWarning():
+    print('playing warning sound')
+    playsound('warning.wav')
 
-    def handleDisable(self):
-        if self.timer:
-            self.timer.cancel()
-            self.timer = None
+def playStart():
+    print('playing start sound')
+    playsound('start.wav')
 
-        self.endTime = None
-        self.state = "DISABLED"
+def playPause():
+    print('playing pause sound')
+    playsound('pause.wav')
 
-    def playStartSound(self):
-        print('playing start sound')
-        playsound('start.wav')
+def playStop():
+    print('playing stop sound')
+    playsound('stop.wav')
 
-    def handleAutonomousEnd(self):
-        self.handleDisable()
-        print('auto ended')
-        playsound('pause.wav')
+def periodEnd():
+    global mode
+    if mode == 'AUTO':
+        playPause()
+    else:
+        playStop()
 
-    def handleDriverEnd(self):
-        self.handleDisable()
-        print('driver ended')
-        playsound('stop.wav')
+async def process_field_control(set_mode, set_end_time):
+    global end_time, mode
 
-    def handleEarlyEnd(self):
-        print('handling early end')
-        self.handleDisable()
-        playsound('stop.wav')
+    if set_mode != mode:
+        mode = set_mode
 
-    def handleWarning(self):
-        playsound('warning.wav')
-        print('playing 30 second warning')
-        timeToEnd = self.endTime - datetime.datetime.now(tz=pytz.UTC)
-        self.timer = threading.Timer(timeToEnd.total_seconds(), self.handleDriverEnd)
-        self.timer.start()
-
-    def handleFieldState(self, payload):
-        mode = payload['mode']
-        endTime = payload['endTime']
-
-        if self.state == 'ENABLED' and endTime == None:
-            print('match over')
-        elif self.state != 'ENABLED' and endTime != None:
+    if set_end_time != end_time:
+        end_time = set_end_time
+        if end_time is None:
+            periodEnd()
+            global pendingTimer
+        else:
+            if pendingTimer is not None:
+                pendingTimer.cancel()
+                pendingTimer = None
             if mode == 'AUTO':
-                print('auto started')
-                self.state = "ENABLED"
-                self.playStartSound()
-                self.endTime = datetime.datetime.strptime(endTime, '%Y-%m-%dT%H:%M:%S.%f%z')
-                timeToEnd = self.endTime - datetime.datetime.now(tz=pytz.UTC)
-                self.timer = threading.Timer(timeToEnd.total_seconds(), self.handleAutonomousEnd)
-                self.timer.start()
-            elif mode == 'DRIVER':
-                print('driver started')
-                self.endTime = datetime.datetime.strptime(endTime, '%Y-%m-%dT%H:%M:%S.%f%z')
-                self.state = "ENABLED"
-                self.playStartSound()
-                timeToWarning = self.endTime - datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=30)
-                self.timer = threading.Timer(timeToWarning.total_seconds(), self.handleWarning)
-                self.timer.start()
+                pendingTimer = asyncio.create_task(timer(end_time))
+            else:
+                pendingTimer = asyncio.create_task(timer(end_time, True))
+            playStart()
 
-field = FieldState()
+async def subscribe(server, serverPort, fieldId: int):
+    url = 'ws://' + server + ':' + str(serverPort) + '/graphql'
+    transport = WebsocketsTransport(url=url)
+    query = gql("""
+    subscription FieldControl($fieldId: Int!) {
+            fieldControl(fieldId: $fieldId) {
+            endTime
+            mode
+        }
+    }
+    """)
 
-def on_message(client, userdata, msg):
-    topic = msg.topic
-    global currentField
-    if topic == 'liveField':
-        payload = json.loads(msg.payload.decode('utf-8'))
-        fieldId = payload['fieldId']
-        if fieldId != currentField:
-            print('field is now ' + str(fieldId))
-            if currentField is not None:
-                client.unsubscribe('fieldControl/' + str(currentField))
-            currentField = fieldId
-            if currentField is not None:
-                client.subscribe('fieldControl/' + str(currentField))
-    elif topic == 'fieldControl/' + str(currentField):
-        payload = json.loads(msg.payload.decode('utf-8'))
-        field.handleFieldState(payload)
-    #field.handleFieldState(payload)
+    variables = {
+        "fieldId": fieldId
+    }
 
-client = mqtt.Client(transport='websockets')
+    async with Client(transport=transport) as session:
+        print('Subscribed to field control')
+        try:
+            async for result in session.subscribe(query, variable_values=variables):
+                print(result)
+                await process_field_control(result['fieldControl']['mode'], result['fieldControl']['endTime'])
+        except websockets.exceptions.ConnectionClosedError:
+            print('Connection lost')
+            return
 
-client.on_connect = on_connect
-client.on_message = on_message
+async def pollActiveField(server, port):
+    url = 'http://' + server + ':' + str(port) + '/graphql'
+    transport = AIOHTTPTransport(url)
 
-client.connect(server, 1883, 60)
+    query = gql("""
+        query results {
+            competitionInformation {
+                liveField {
+                    id
+                    fieldControl {
+                        endTime
+                        mode
+                    }
+                }
+            }
+        }
+        """)
 
-client.loop_forever()
+
+    async with Client(transport=transport, fetch_schema_from_transport=True) as session:
+        lastValue = None
+        current_subscription = None
+        while True:
+            await asyncio.sleep(0.25)
+            try:
+                result = await session.execute(query)
+                liveField = result['competitionInformation']['liveField']
+            except aiohttp.client_exceptions.ClientConnectorError:
+                if lastValue is not None:
+                    print("Connection lost")
+                    current_subscription.cancel()
+                    lastValue = None
+                continue
+        
+            if liveField is None:
+                if lastValue is not None:
+                    lastValue = None
+                    current_subscription.cancel()
+                    print("Unassigned")
+                continue
+        
+            fieldId = int(liveField['id'])
+            if fieldId is not lastValue:
+                if current_subscription is not None:
+                    current_subscription.cancel()
+                lastValue = fieldId
+                print(f"Live field is field with id {fieldId}")
+                current_subscription = asyncio.create_task(subscribe(server, port, fieldId))
+
+            fieldControl = liveField['fieldControl']
+
+            if fieldControl is not None:
+                await process_field_control(fieldControl['mode'], fieldControl['endTime'])
+
+def doTheThing(server, port):
+    while True:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(pollActiveField(server, port))
+            loop.close()
+        except aiohttp.client_exceptions.ClientConnectorError:
+            continue
+
+server, port = connect.get_server()
+
+doTheThing(server, port)
