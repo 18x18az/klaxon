@@ -10,72 +10,80 @@ import aiohttp
 from datetime import datetime, timezone, timedelta
 from playsound import playsound
 
+def playClip(clip):
+    print(f'playing {clip} sound')
+    playsound(f'{clip}.wav')
+
 end_time = None
 mode = None
-pendingTimer = None
+pendingTimers = None
 
 currentField = None
 
 server = connect.get_server()
 
-async def timer(stop_time: str, isWarning: bool = False):
-    global pendingTimer, end_time
+async def timer(time, sound):
+    global pendingTimers
     # time is in ISO format
-    timeToWait = (datetime.fromisoformat(stop_time) - datetime.now(timezone.utc)).total_seconds()
-    if isWarning:
-        timeToWait -= 30
+    timeToWait = (time - datetime.now(timezone.utc)).total_seconds()
+    print(f'waiting {timeToWait} seconds to play {sound} sound')
     await asyncio.sleep(timeToWait)
-    if isWarning:
-        playWarning()
-        pendingTimer = asyncio.create_task(timer(end_time))
-    else:
-        pendingTimer = None
-        end_time = None
-        periodEnd()
+    if sound != 'warning':
+        pendingTimers = None
+    playClip(sound)
 
 def playWarning():
-    print('playing warning sound')
-    playsound('warning.wav')
+    playClip('warning')
 
 def playStart():
-    print('playing start sound')
-    playsound('start.wav')
+    playClip('start')
 
 def playPause():
-    print('playing pause sound')
-    playsound('pause.wav')
+    playClip('pause')
 
 def playStop():
-    print('playing stop sound')
-    playsound('stop.wav')
-
-def periodEnd():
-    global mode
-    if mode == 'AUTO':
-        playPause()
-    else:
-        playStop()
+    playClip('stop')
 
 async def process_field_control(set_mode, set_end_time):
-    global end_time, mode
+    global mode, pendingTimers, end_time
 
-    if set_mode != mode:
-        mode = set_mode
+    if set_mode == mode and set_end_time == end_time:
+        return
 
-    if set_end_time != end_time:
-        end_time = set_end_time
-        if end_time is None:
-            periodEnd()
-            global pendingTimer
+    priorMode = mode
+
+    hadPendingTimers = False
+
+    if pendingTimers is not None:
+        hadPendingTimers = True
+        for pendingTimer in pendingTimers:
+            pendingTimer.cancel()
+        pendingTimers = None
+
+    if hadPendingTimers:
+        if priorMode == 'AUTO':
+            playPause()
         else:
-            if pendingTimer is not None:
-                pendingTimer.cancel()
-                pendingTimer = None
-            if mode == 'AUTO':
-                pendingTimer = asyncio.create_task(timer(end_time))
-            else:
-                pendingTimer = asyncio.create_task(timer(end_time, True))
-            playStart()
+            playStop()
+
+    mode = set_mode
+    end_time = set_end_time
+
+    if set_end_time is not None:
+        playStart()
+        end_datetime = datetime.fromisoformat(set_end_time)
+
+        if mode == 'AUTO':
+            pendingTimers = [asyncio.create_task(timer(end_datetime, 'pause'))]
+        else:
+            warning30Sec = end_datetime - timedelta(seconds=30)
+            warning15Sec = end_datetime - timedelta(seconds=15)
+            pendingTimers = [
+                asyncio.create_task(timer(warning30Sec, 'warning')),
+                asyncio.create_task(timer(warning15Sec, 'warning')),
+                asyncio.create_task(timer(end_datetime, 'stop'))
+                ]
+
 
 async def subscribe(server, serverPort, fieldId: int):
     url = 'ws://' + server + ':' + str(serverPort) + '/graphql'
