@@ -1,6 +1,6 @@
 [Unit]
 Description=Game sounds as a service
-After=pulseaudio
+After=pulseaudio.service
 
 [Service]
 User=operator
