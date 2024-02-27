@@ -1,0 +1,11 @@
+[Unit]
+Description=Game sounds as a service
+After=pulseaudio
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/usr/bin/python3 -u /home/operator/klaxon/main.py
+
+[Install]
+WantedBy=multi-user.target
