@@ -3,9 +3,10 @@ Description=Game sounds as a service
 After=pulseaudio
 
 [Service]
+User=operator
 Type=simple
 Restart=always
-ExecStart=/usr/bin/python3 -u /home/username/klaxon/main.py
+ExecStart=cd klaxon && python3 -u main.py
 
 [Install]
 WantedBy=multi-user.target
