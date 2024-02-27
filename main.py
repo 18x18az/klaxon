@@ -9,6 +9,7 @@ import asyncio
 import aiohttp
 from datetime import datetime, timezone, timedelta
 from playsound import playsound
+from dateutil import parser
 
 def playClip(clip):
     print(f'playing {clip} sound')
@@ -71,7 +72,7 @@ async def process_field_control(set_mode, set_end_time):
 
     if set_end_time is not None:
         playStart()
-        end_datetime = datetime.fromisoformat(set_end_time)
+        end_datetime = parser.isoparse(set_end_time)
 
         if mode == 'AUTO':
             pendingTimers = [asyncio.create_task(timer(end_datetime, 'pause'))]
